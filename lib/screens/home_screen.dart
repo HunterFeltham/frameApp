@@ -49,7 +49,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(46),
+          preferredSize: const Size.fromHeight(52),
           child: _ConnectionBar(frame: frame),
         ),
       ),
@@ -142,6 +142,7 @@ class _ConnectionBar extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),

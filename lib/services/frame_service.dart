@@ -11,19 +11,11 @@ enum FrameConnectionStatus { disconnected, connecting, connected }
 /// Uses frame_ble 3.0.0 (CitizenOneX) for BLE transport.
 /// The app runs fully without Frame connected — all sends are no-ops when
 /// [isConnected] is false, and no errors are thrown.
-///
-/// HARDWARE VERIFICATION NOTES (test with physical Frame before shipping):
-///   • [BrilliantBluetooth.scan()] — verify Stream<BrilliantScannedDevice> API.
-///   • [BrilliantBluetooth.connect()] — verify signature; may throw on timeout.
-///   • [BrilliantDevice.sendString()] — verify awaitResponse flag behaviour.
-///   • [BrilliantDevice.connectionState] — verify stream exists; used in
-///     [_monitorConnectionState] to detect out-of-range disconnects.
-///   • Frame Lua display: test line spacing (lineHeight = 68) on real hardware.
 class FrameService extends ChangeNotifier {
   FrameConnectionStatus _status = FrameConnectionStatus.disconnected;
   BrilliantDevice? _device;
   StreamSubscription<BrilliantScannedDevice>? _scanSub;
-  StreamSubscription<BrilliantConnectionState>? _connStateSub;
+  StreamSubscription<BrilliantDevice>? _connStateSub;
   String? _lastError;
   bool _lastSendFailed = false;
 
@@ -34,7 +26,7 @@ class FrameService extends ChangeNotifier {
 
   String get statusLabel => switch (_status) {
         FrameConnectionStatus.disconnected => 'Frame: Disconnected',
-        FrameConnectionStatus.connecting => 'Frame: Connecting…',
+        FrameConnectionStatus.connecting => 'Frame: Scanning…',
         FrameConnectionStatus.connected => 'Frame: Connected',
       };
 
@@ -42,50 +34,61 @@ class FrameService extends ChangeNotifier {
 
   /// Scans for a nearby Frame device and connects to the first one found.
   ///
-  /// Shows [lastError] and returns to disconnected state on any failure.
-  /// Call [disconnect] first if already connected.
+  /// Requests Android runtime BT permissions first, then gates on adapter
+  /// state. Shows [lastError] and returns to disconnected state on any failure.
   Future<void> connect() async {
     if (_status != FrameConnectionStatus.disconnected) return;
     _clearError();
     _setStatus(FrameConnectionStatus.connecting);
 
-    // Gate on BT adapter — gives a clear user-facing error if BT is off.
-    final adapterState = await FlutterBluePlus.adapterState.first;
-    if (adapterState != BluetoothAdapterState.on) {
-      _fail('Bluetooth is off – please enable it and try again.');
+    // 1 ── Request Android runtime permissions (BLUETOOTH_SCAN / BLUETOOTH_CONNECT).
+    //      On first launch this triggers the system permission dialog.
+    //      On subsequent launches it's a no-op if already granted.
+    try {
+      await BrilliantBluetooth.requestPermission();
+    } catch (e) {
+      _fail('BT permission denied – allow in Settings → Apps → Alto Jam');
       return;
     }
 
+    // 2 ── Gate on BT adapter being on.
+    final adapterState = await FlutterBluePlus.adapterState.first;
+    if (adapterState != BluetoothAdapterState.on) {
+      _fail('Bluetooth is off – enable it and try again');
+      return;
+    }
+
+    // 3 ── Scan and connect.
     try {
-      // TODO(hardware): Verify BrilliantBluetooth.scan() stream type with
-      // frame_ble 3.0.0. Expected: Stream<BrilliantScannedDevice>.
       _scanSub = BrilliantBluetooth.scan().listen(
         (scanned) async {
           await _scanSub?.cancel();
           _scanSub = null;
           try {
-            // TODO(hardware): Verify BrilliantBluetooth.connect() signature.
             _device = await BrilliantBluetooth.connect(scanned);
             _monitorConnectionState();
             _setStatus(FrameConnectionStatus.connected);
           } catch (e) {
-            _fail('Connection failed: $e');
+            _fail('Connection failed – move Frame closer and retry');
           }
         },
-        onError: (Object e) => _fail('Scan error: $e'),
+        onError: (Object e) {
+          // Common cause: Location Services toggled off on Samsung devices.
+          _fail('Scan error – enable Location Services and retry');
+        },
         onDone: () {
           if (_status == FrameConnectionStatus.connecting) {
-            _fail('No Frame found nearby – is it worn and awake?');
+            _fail('Frame not found – off charger? Within 1 m?');
           }
         },
       );
 
-      // Auto-cancel scan after 12 s if nothing is found.
+      // Auto-cancel after 12 s (library scan itself times out at 10 s).
       Future.delayed(const Duration(seconds: 12), () {
         if (_status == FrameConnectionStatus.connecting) {
           _scanSub?.cancel();
           _scanSub = null;
-          _fail('Scan timed out – Frame not found.');
+          _fail('Scan timed out – Frame not found nearby');
         }
       });
     } catch (e) {
@@ -99,12 +102,9 @@ class FrameService extends ChangeNotifier {
     _scanSub = null;
     await _connStateSub?.cancel();
     _connStateSub = null;
-
-    // TODO(hardware): Verify BrilliantDevice.disconnect() method name/signature.
     try {
       await _device?.disconnect();
     } catch (_) {}
-
     _device = null;
     _clearError();
     _setStatus(FrameConnectionStatus.disconnected);
@@ -125,8 +125,6 @@ class FrameService extends ChangeNotifier {
     }
     try {
       final lua = _buildFrameLua(displayText);
-      // TODO(hardware): Verify BrilliantDevice.sendString() signature.
-      // Expected: sendString(String luaCode, {bool awaitResponse = false})
       await _device!.sendString(lua, awaitResponse: false);
       notifyListeners();
       return true;
@@ -143,19 +141,13 @@ class FrameService extends ChangeNotifier {
   /// Converts a '\n'-delimited string to a Lua script that renders it on
   /// the Frame 640×400 display.
   ///
-  /// Frame Lua API: frame.display.text(text, x, y)
-  ///   x: horizontal position (1–640), y: vertical position (1–400)
-  ///   Variable-width font only; no word-wrap; no font-size control.
-  ///
-  /// lineHeight=68 → 3 lines fit cleanly in 400 px. Adjust if font renders
-  /// differently on your hardware.
+  /// lineHeight=68 → 3 lines fit cleanly in 400 px.
   String _buildFrameLua(String displayText) {
     final lines = displayText.split('\n');
     final buf = StringBuffer();
     const lineHeight = 68;
 
     for (var i = 0; i < lines.length && i < 4; i++) {
-      // Single quotes must be escaped inside the Lua string literal.
       final escaped = lines[i].replaceAll("'", r"\'");
       final y = 1 + (i * lineHeight);
       buf.write("frame.display.text('$escaped',1,$y);");
@@ -166,19 +158,29 @@ class FrameService extends ChangeNotifier {
 
   // ── Private helpers ─────────────────────────────────────────────────────────
 
+  /// Monitors the live connection state so the UI updates if Frame goes
+  /// out of range or is powered off after connecting.
   void _monitorConnectionState() {
-    // TODO(hardware): Verify BrilliantDevice exposes a connectionState stream.
-    // Uncomment when confirmed with frame_ble 3.0.0:
-    //
-    // _connStateSub = _device!.connectionState.listen((state) {
-    //   if (state == BrilliantConnectionState.disconnected) {
-    //     _device = null;
-    //     _connStateSub?.cancel();
-    //     _connStateSub = null;
-    //     _lastError = 'Frame disconnected.';
-    //     _setStatus(FrameConnectionStatus.disconnected);
-    //   }
-    // });
+    _connStateSub = _device!.connectionState.listen(
+      (updatedDevice) {
+        if (updatedDevice.state == BrilliantConnectionState.disconnected) {
+          _device = null;
+          _connStateSub?.cancel();
+          _connStateSub = null;
+          _lastError = 'Frame disconnected';
+          _setStatus(FrameConnectionStatus.disconnected);
+        } else {
+          // Reconnected after transient drop.
+          _device = updatedDevice;
+          _setStatus(FrameConnectionStatus.connected);
+        }
+      },
+      onError: (Object e) {
+        _device = null;
+        _connStateSub = null;
+        _fail('Frame connection lost');
+      },
+    );
   }
 
   void _setStatus(FrameConnectionStatus s) {
