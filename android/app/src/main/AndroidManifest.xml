@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AndroidManifest.xml for Alto Jam Key Helper
+  ============================================
+  Replace the auto-generated manifest created by `flutter create` with this
+  file. It adds the Bluetooth LE permissions required by frame_ble /
+  flutter_blue_plus on Android 12+ and provides fallbacks for API < 31.
+
+  IMPORTANT: also set minSdkVersion = 21 in android/app/build.gradle:
+    defaultConfig {
+      minSdkVersion 21   ← change from 16 to 21
+      targetSdkVersion 34
+      ...
+    }
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.alto_jam_key_helper">
+
+    <!-- ── Bluetooth LE hardware feature ──────────────────────────────────── -->
+    <!-- android:required="false" keeps the app installable on non-BLE devices -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+
+    <!-- ── Android 12+ (API 31+) Bluetooth permissions ────────────────────── -->
+    <!-- BLUETOOTH_SCAN: scan for nearby BLE devices (Frame glasses)          -->
+    <!-- neverForLocation: we don't use BLE for location; avoids the          -->
+    <!--   ACCESS_FINE_LOCATION runtime prompt on API 31+.                    -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <!-- BLUETOOTH_CONNECT: connect to a paired/found BLE device -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- ── Android 11 and below (API ≤ 30) ────────────────────────────────── -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <!-- Location required for BLE scanning on API ≤ 30 -->
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+
+    <application
+        android:label="Alto Jam Key Helper"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode|navigation"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Required by flutter_blue_plus for background BLE on some devices -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+
+    <!-- Required by flutter_blue_plus queries API (API 30+) -->
+    <queries>
+        <intent>
+            <action android:name="android.bluetooth.IBluetooth.class" />
+        </intent>
+    </queries>
+
+</manifest>

@@ -1,0 +1,31 @@
+name: alto_jam_key_helper
+description: Alto saxophone jam key helper with Brilliant Labs Frame support
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Brilliant Labs Frame BLE transport (CitizenOneX stack, actively maintained)
+  frame_ble: ^3.0.0
+
+  # Frame message formatting (plain text, sprites, etc.)
+  frame_msg: ^2.0.0
+
+  # BLE adapter state checking (transitive via frame_ble, explicit for direct use)
+  flutter_blue_plus: ^1.35.3
+
+  # State management
+  provider: ^6.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
