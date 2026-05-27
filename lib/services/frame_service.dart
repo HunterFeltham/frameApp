@@ -78,8 +78,11 @@ class FrameService extends ChangeNotifier {
       _scanSub = FlutterBluePlus.onScanResults.listen(
         (results) async {
           if (_connecting) return; // already connecting to first found device
+          // Match "Frame" or "Frame XX" (the suffix is the first byte of the
+          // BLE MAC address — e.g. "Frame EC" for MAC EC:49:1C:2E:D0:5E).
           final frames = results
-              .where((r) => r.device.advName == 'Frame')
+              .where((r) => r.device.advName == 'Frame' ||
+                            r.device.advName.startsWith('Frame '))
               .toList()
             ..sort((a, b) => b.rssi.compareTo(a.rssi)); // nearest first
 
@@ -115,8 +118,10 @@ class FrameService extends ChangeNotifier {
         },
       );
 
+      // Broad scan — no name/service filter at the Android level.
+      // Filtering by name is done in the stream above so we catch both
+      // "Frame" and "Frame XX" (suffix varies per device MAC address).
       await FlutterBluePlus.startScan(
-        withNames: ['Frame'],
         timeout: const Duration(seconds: 10),
         continuousUpdates: false,
         removeIfGone: null,
